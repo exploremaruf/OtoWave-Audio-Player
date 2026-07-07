@@ -1,103 +1,142 @@
 package com.otowave.otowave;
 
-import android.media.MediaPlayer;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.ServiceConnection;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
-import android.widget.ImageButton;
+import android.os.IBinder;
 import android.widget.SeekBar;
-import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
-import com.google.android.material.floatingactionbutton.FloatingActionButton;
+import com.bumptech.glide.Glide;
+import com.otowave.otowave.databinding.ActivityPlayerBinding;
 
-import java.io.IOException;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 public class PlayerActivity extends AppCompatActivity {
 
-    private TextView titleTv, artistTv, currentTimeTv, totalTimeTv;
-    private SeekBar seekBar;
-    private FloatingActionButton playPauseBtn;
-    private AudioModel currentSong;
-    private MediaPlayer mediaPlayer;
-    private Handler handler = new Handler();
+    private ActivityPlayerBinding binding;
+    private MusicService musicService;
+    private boolean isBound = false;
+    private final Handler handler = new Handler();
+
+    private final ServiceConnection serviceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            MusicService.MusicBinder binder = (MusicService.MusicBinder) service;
+            musicService = binder.getService();
+            isBound = true;
+            setupUI();
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            isBound = false;
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
-        setContentView(R.layout.activity_player);
+        binding = ActivityPlayerBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
 
-        titleTv = findViewById(R.id.player_song_title);
-        artistTv = findViewById(R.id.player_artist_name);
-        currentTimeTv = findViewById(R.id.player_current_time);
-        totalTimeTv = findViewById(R.id.player_total_time);
-        seekBar = findViewById(R.id.player_seekbar);
-        playPauseBtn = findViewById(R.id.fab_play_pause);
+        Intent intent = new Intent(this, MusicService.class);
+        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
 
-        currentSong = (AudioModel) getIntent().getSerializableExtra("SONG");
+        binding.btnBack.setOnClickListener(v -> finish());
 
-        if (currentSong != null) {
-            titleTv.setText(currentSong.getTitle());
-            artistTv.setText(currentSong.getArtist());
-            playMusic(currentSong.getPath());
-        }
-
-        ImageButton btnBack = findViewById(R.id.btn_back);
-        btnBack.setOnClickListener(v -> finish());
-
-        playPauseBtn.setOnClickListener(v -> {
-            if (mediaPlayer.isPlaying()) {
-                mediaPlayer.pause();
-                playPauseBtn.setImageResource(R.drawable.ic_play);
-            } else {
-                mediaPlayer.start();
-                playPauseBtn.setImageResource(R.drawable.ic_pause);
-            }
-        });
-
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.btn_back).getRootView(), (v, insets) -> {
+        ViewCompat.setOnApplyWindowInsetsListener(binding.btnBack.getRootView(), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
     }
 
-    private void playMusic(String path) {
-        try {
-            if (mediaPlayer == null) {
-                mediaPlayer = new MediaPlayer();
-            } else {
-                mediaPlayer.reset();
-            }
-            mediaPlayer.setDataSource(path);
-            mediaPlayer.prepare();
-            mediaPlayer.start();
-            playPauseBtn.setImageResource(R.drawable.ic_pause);
-            
-            seekBar.setMax(mediaPlayer.getDuration());
-            totalTimeTv.setText(formatDuration(mediaPlayer.getDuration()));
-            
-            updateSeekBar();
+    private void setupUI() {
+        if (musicService.getCurrentSong() == null) return;
+        
+        AudioModel song = musicService.getCurrentSong();
+        binding.playerSongTitle.setText(song.getTitle());
+        binding.playerArtistName.setText(song.getArtist());
+        binding.playerTotalTime.setText(formatDuration(musicService.getDuration()));
+        binding.playerSeekbar.setMax(musicService.getDuration());
 
-        } catch (IOException e) {
-            Toast.makeText(this, "Error playing music", Toast.LENGTH_SHORT).show();
+        Glide.with(this)
+                .load(getAlbumArtUri(song.getAlbumId()))
+                .placeholder(R.drawable.ic_default_album_art)
+                .into(binding.playerAlbumArt);
+
+        binding.fabPlayPause.setOnClickListener(v -> {
+            musicService.pauseResume();
+            updatePlayPauseIcon();
+        });
+
+        binding.btnShuffle.setOnClickListener(v -> {
+            musicService.setShuffle(!musicService.isShuffle());
+            updateShuffleIcon();
+        });
+
+        binding.btnNext.setOnClickListener(v -> {
+            musicService.nextSong();
+            setupUI();
+        });
+
+        binding.btnPrevious.setOnClickListener(v -> {
+            musicService.previousSong();
+            setupUI();
+        });
+
+        binding.playerSeekbar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser) musicService.seekTo(progress);
+            }
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+
+        updatePlayPauseIcon();
+        updateShuffleIcon();
+        updateSeekBar();
+    }
+
+    private void updateShuffleIcon() {
+        if (musicService.isShuffle()) {
+            binding.btnShuffle.setColorFilter(ContextCompat.getColor(this, R.color.primary));
+        } else {
+            binding.btnShuffle.setColorFilter(ContextCompat.getColor(this, R.color.text_secondary));
         }
     }
 
+    private void updatePlayPauseIcon() {
+        binding.fabPlayPause.setImageResource(musicService.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
+    }
+
     private void updateSeekBar() {
-        if (mediaPlayer != null) {
-            seekBar.setProgress(mediaPlayer.getCurrentPosition());
-            currentTimeTv.setText(formatDuration(mediaPlayer.getCurrentPosition()));
-            handler.postDelayed(this::updateSeekBar, 1000);
+        if (isBound && musicService.isPlaying()) {
+            int currentPos = musicService.getCurrentPosition();
+            binding.playerSeekbar.setProgress(currentPos);
+            binding.playerCurrentTime.setText(formatDuration(currentPos));
         }
+        handler.postDelayed(this::updateSeekBar, 1000);
+    }
+
+    private Uri getAlbumArtUri(long albumId) {
+        return Uri.parse("content://media/external/audio/albumart/" + albumId);
     }
 
     private String formatDuration(long duration) {
@@ -109,9 +148,10 @@ public class PlayerActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (mediaPlayer != null) {
-            mediaPlayer.release();
-            mediaPlayer = null;
+        if (isBound) {
+            unbindService(serviceConnection);
+            isBound = false;
         }
+        handler.removeCallbacksAndMessages(null);
     }
 }
