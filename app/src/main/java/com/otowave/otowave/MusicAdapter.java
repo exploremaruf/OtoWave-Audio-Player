@@ -1,13 +1,15 @@
 package com.otowave.otowave;
 
 import android.content.Context;
+import android.net.Uri;
 import android.view.LayoutInflater;
-import android.view.View;
 import android.view.ViewGroup;
-import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
+
+import com.bumptech.glide.Glide;
+import com.otowave.otowave.databinding.SongcardBinding;
 
 import java.util.List;
 import java.util.Locale;
@@ -15,9 +17,9 @@ import java.util.concurrent.TimeUnit;
 
 public class MusicAdapter extends RecyclerView.Adapter<MusicAdapter.ViewHolder> {
 
-    private List<AudioModel> songsList;
-    private Context context;
-    private OnItemClickListener listener;
+    private final List<AudioModel> songsList;
+    private final Context context;
+    private final OnItemClickListener listener;
 
     public interface OnItemClickListener {
         void onItemClick(AudioModel song, int position);
@@ -32,16 +34,21 @@ public class MusicAdapter extends RecyclerView.Adapter<MusicAdapter.ViewHolder> 
     @NonNull
     @Override
     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View view = LayoutInflater.from(context).inflate(R.layout.songcard, parent, false);
-        return new ViewHolder(view);
+        SongcardBinding binding = SongcardBinding.inflate(LayoutInflater.from(context), parent, false);
+        return new ViewHolder(binding);
     }
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         AudioModel song = songsList.get(position);
-        holder.titleText.setText(song.getTitle());
-        holder.artistText.setText(song.getArtist());
-        holder.durationText.setText(formatDuration(song.getDuration()));
+        holder.binding.songTitle.setText(song.getTitle());
+        holder.binding.songArtist.setText(song.getArtist());
+        holder.binding.songDuration.setText(formatDuration(song.getDuration()));
+
+        Glide.with(context)
+                .load(getAlbumArtUri(song.getAlbumId()))
+                .placeholder(R.drawable.ic_default_album_art)
+                .into(holder.binding.songAlbumArt);
 
         holder.itemView.setOnClickListener(v -> {
             if (listener != null) {
@@ -50,19 +57,21 @@ public class MusicAdapter extends RecyclerView.Adapter<MusicAdapter.ViewHolder> 
         });
     }
 
+    private Uri getAlbumArtUri(long albumId) {
+        return Uri.parse("content://media/external/audio/albumart/" + albumId);
+    }
+
     @Override
     public int getItemCount() {
         return songsList.size();
     }
 
     public static class ViewHolder extends RecyclerView.ViewHolder {
-        TextView titleText, artistText, durationText;
+        final SongcardBinding binding;
 
-        public ViewHolder(@NonNull View itemView) {
-            super(itemView);
-            titleText = itemView.findViewById(R.id.song_title);
-            artistText = itemView.findViewById(R.id.song_artist);
-            durationText = itemView.findViewById(R.id.song_duration);
+        public ViewHolder(@NonNull SongcardBinding binding) {
+            super(binding.getRoot());
+            this.binding = binding;
         }
     }
 
